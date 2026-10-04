@@ -200,11 +200,11 @@ def azzera(chiavi) -> None:
         st.session_state.pop(chiave, None)
 
 
-def campo_numero(etichetta, chiave, iniziale="", aiuto=None, segnaposto=None):
+def campo_numero(etichetta, chiave, iniziale="", aiuto=None):
     """Un campo per un numero scritto all'italiana: 3,50 oppure 3.50."""
     if chiave not in st.session_state and iniziale != "":
         st.session_state[chiave] = iniziale
-    testo = st.text_input(etichetta, key=chiave, help=aiuto, placeholder=segnaposto)
+    testo = st.text_input(etichetta, key=chiave, help=aiuto)
     valore = c.leggi_numero(testo)
     if (testo or "").strip() and valore is None:
         st.caption("Scrivi solo un numero, per esempio 3,50")
@@ -266,7 +266,7 @@ def selettore_tipo() -> str:
                 width="stretch",
             ):
                 st.session_state["tipo_nuova"] = tipo
-                azzera(["prodotto_scelto"])
+                azzera(["prodotto_scelto", "procedi_acquisto", "procedi_vendita", "procedi_versamento"])
                 st.rerun()
     return attuale
 
@@ -281,7 +281,6 @@ def scegli_prodotto_acquisto(stato):
         nome = st.text_input(
             "Che prodotto hai comprato",
             key="nome_nuovo",
-            placeholder="Coinbase 5x long",
             help="Scrivilo come vuoi, per esempio come nel messaggio di Sean.",
         )
         if stato.posizioni and st.button("Scegli invece tra le tue posizioni", key="torna_elenco"):
@@ -346,12 +345,21 @@ def scegli_posizione(stato):
 
 def modulo_acquisto(operazioni, stato) -> None:
     prodotto = scegli_prodotto_acquisto(stato)
-    quote = campo_numero("Quante quote", "quote_acquisto", segnaposto="5")
-    prezzo = campo_numero("Prezzo di ogni quota", "prezzo_acquisto", segnaposto="3,50")
-    giorno = campo_data("data_acquisto")
+    if not prodotto:
+        return
 
-    if not prodotto or not quote or not prezzo:
-        st.caption("Compila i campi e qui sotto comparira' il riepilogo.")
+    with st.form("form_acquisto"):
+        quote = campo_numero("Quante quote", "quote_acquisto")
+        prezzo = campo_numero("Prezzo di ogni quota", "prezzo_acquisto")
+        giorno = campo_data("data_acquisto")
+        if st.form_submit_button("Procedi", type="primary", width="stretch"):
+            st.session_state["procedi_acquisto"] = True
+
+    if not st.session_state.get("procedi_acquisto"):
+        st.caption("Compila i campi e premi Procedi per vedere il riepilogo.")
+        return
+    if not quote or not prezzo:
+        st.error("Scrivi quote e prezzo prima di procedere.")
         return
 
     nuova = c.Operazione(
@@ -385,7 +393,16 @@ def modulo_acquisto(operazioni, stato) -> None:
                 f"Segnato: {c.quote_testo(quote)} quote di {prodotto} a {c.euro(prezzo)}. "
                 f"Ora la posizione e' di {c.quote_testo(riga.quote_dopo)} quote, PMC {c.euro(riga.pmc_dopo)}."
             )
-            azzera(["quote_acquisto", "prezzo_acquisto", "data_acquisto", "prodotto_scelto", "nome_nuovo"])
+            azzera(
+                [
+                    "quote_acquisto",
+                    "prezzo_acquisto",
+                    "data_acquisto",
+                    "prodotto_scelto",
+                    "nome_nuovo",
+                    "procedi_acquisto",
+                ]
+            )
             st.rerun()
 
 
@@ -398,17 +415,23 @@ def modulo_vendita(operazioni, stato) -> None:
     if posizione is None:
         return
 
-    quote = campo_numero(
-        "Quante quote",
-        f"quote_vendita_{posizione.chiave}",
-        iniziale=c.quote_testo(posizione.quote),
-        aiuto="Ci sono gia' tutte le tue quote: abbassale se ne vendi solo una parte.",
-    )
-    prezzo = campo_numero("Prezzo di ogni quota", "prezzo_vendita", segnaposto="4,00")
-    giorno = campo_data("data_vendita")
+    with st.form("form_vendita"):
+        quote = campo_numero(
+            "Quante quote",
+            f"quote_vendita_{posizione.chiave}",
+            iniziale=c.quote_testo(posizione.quote),
+            aiuto="Ci sono gia' tutte le tue quote: abbassale se ne vendi solo una parte.",
+        )
+        prezzo = campo_numero("Prezzo di ogni quota", "prezzo_vendita")
+        giorno = campo_data("data_vendita")
+        if st.form_submit_button("Procedi", type="primary", width="stretch"):
+            st.session_state["procedi_vendita"] = True
 
+    if not st.session_state.get("procedi_vendita"):
+        st.caption("Compila i campi e premi Procedi per vedere il riepilogo.")
+        return
     if not quote or not prezzo:
-        st.caption("Compila i campi e qui sotto comparira' il riepilogo.")
+        st.error("Scrivi quote e prezzo prima di procedere.")
         return
 
     nuova = c.Operazione(
@@ -458,19 +481,24 @@ def modulo_vendita(operazioni, stato) -> None:
                     "prezzo_vendita",
                     "data_vendita",
                     "prodotto_scelto",
+                    "procedi_vendita",
                 ]
             )
             st.rerun()
 
 
 def modulo_versamento(operazioni, stato) -> None:
-    importo = campo_numero(
-        "Quanto hai versato", "importo_versamento", segnaposto="250,00"
-    )
-    giorno = campo_data("data_versamento")
+    with st.form("form_versamento"):
+        importo = campo_numero("Quanto hai versato", "importo_versamento")
+        giorno = campo_data("data_versamento")
+        if st.form_submit_button("Procedi", type="primary", width="stretch"):
+            st.session_state["procedi_versamento"] = True
 
+    if not st.session_state.get("procedi_versamento"):
+        st.caption("Scrivi l'importo e premi Procedi per vedere il riepilogo.")
+        return
     if not importo:
-        st.caption("Scrivi l'importo e qui sotto comparira' il riepilogo.")
+        st.error("Scrivi l'importo prima di procedere.")
         return
 
     nuova = c.Operazione(
@@ -497,7 +525,7 @@ def modulo_versamento(operazioni, stato) -> None:
                 f"Segnato il versamento di {c.euro(importo)}. "
                 f"Capitale versato: {c.euro(dopo.capitale_versato)}."
             )
-            azzera(["importo_versamento", "data_versamento"])
+            azzera(["importo_versamento", "data_versamento", "procedi_versamento"])
             st.rerun()
 
 
