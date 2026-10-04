@@ -1,0 +1,12 @@
+# Segreti: password e token stanno solo qui, mai nel repository.
+.streamlit/secrets.toml
+
+# Le operazioni e la foto non vanno nel repository dell'app.
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/

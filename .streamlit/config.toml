@@ -1,0 +1,8 @@
+# I colori della guida. Questo file va nel repository: i segreti stanno solo
+# in secrets.toml, che git ignora.
+[theme]
+base = "light"
+primaryColor = "#2B7BBF"
+backgroundColor = "#FEF1E2"
+secondaryBackgroundColor = "#F9E6D2"
+textColor = "#2A2A2A"
