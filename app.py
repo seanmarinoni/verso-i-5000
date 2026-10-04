@@ -345,8 +345,6 @@ def scegli_posizione(stato):
 
 def modulo_acquisto(operazioni, stato) -> None:
     prodotto = scegli_prodotto_acquisto(stato)
-    if not prodotto:
-        return
 
     with st.form("form_acquisto"):
         quote = campo_numero("Quante quote", "quote_acquisto")
@@ -358,8 +356,8 @@ def modulo_acquisto(operazioni, stato) -> None:
     if not st.session_state.get("procedi_acquisto"):
         st.caption("Compila i campi e premi Procedi per vedere il riepilogo.")
         return
-    if not quote or not prezzo:
-        st.error("Scrivi quote e prezzo prima di procedere.")
+    if not prodotto or not quote or not prezzo:
+        st.error("Scrivi il prodotto, le quote e il prezzo prima di procedere.")
         return
 
     nuova = c.Operazione(
