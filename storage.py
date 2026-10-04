@@ -2,9 +2,10 @@
 
 Tutto vive in un repository GitHub PRIVATO, separato da quello dell'app:
 `operazioni.csv` e `foto.png`. L'app parla con GitHub tramite la sua API
-REST, con un token fine-grained letto da `st.secrets`. Ogni salvataggio e'
-un commit con un messaggio leggibile, cosi' la cronologia di GitHub e' anche
-la copia di sicurezza dei dati.
+REST, con un token letto da `st.secrets` (github_token, github_repo_dati,
+e facoltativo github_branch). Ogni salvataggio e' un commit con un
+messaggio leggibile, cosi' la cronologia di GitHub e' anche la copia di
+sicurezza dei dati.
 
 Il resto dell'app usa solo le funzioni qui sotto: leggi, salva, aggiorna,
 elimina, leggi_foto.
