@@ -156,10 +156,35 @@ def _riempimenti_a_gradini(xs, sopra, sotto, colore_sopra, colore_sotto):
     ]
 
 
+def _punti_indice(serie):
+    """Un indice per operazione al posto della data vera sull'asse.
+
+    Con la data vera, piu' operazioni nello stesso giorno finiscono tutte
+    nello stesso punto e il grafico si schiaccia. Con un indice, ogni
+    operazione ha il suo gradino visibile; le date restano comunque nelle
+    etichette dell'asse.
+    """
+    xs = list(range(len(serie)))
+    etichette = [c.data_testo(p.data) for p in serie]
+    return xs, etichette
+
+
+def _tacche_diradate(xs, etichette, massimo=7):
+    """Al massimo 'massimo' tacche sull'asse, a passi regolari."""
+    n = len(xs)
+    if n <= massimo:
+        return xs, etichette
+    passo = max(1, -(-n // massimo))
+    indici = list(range(0, n, passo))
+    if indici[-1] != n - 1:
+        indici.append(n - 1)
+    return [xs[i] for i in indici], [etichette[i] for i in indici]
+
+
 def grafico_rendimento(stato: c.Stato, mostra_lordo: bool = False) -> go.Figure:
-    """Il gain/loss netto sommato nel tempo, con lo sfondo verde/rosso."""
+    """Il gain/loss netto sommato, un gradino per operazione, sfondo verde/rosso."""
     serie = stato.serie
-    xs = [p.data for p in serie]
+    xs, etichette = _punti_indice(serie)
     netto = [p.netto for p in serie]
     zero = [0.0] * len(serie)
 
@@ -198,25 +223,35 @@ def grafico_rendimento(stato: c.Stato, mostra_lordo: bool = False) -> go.Figure:
         percento = (
             100 * ultimo.netto / stato.capitale_versato if stato.capitale_versato else 0.0
         )
+        # L'ultimo punto e' sempre il piu' a destra: l'etichetta va verso
+        # sinistra, altrimenti uscirebbe dal grafico.
         fig.add_annotation(
-            x=ultimo.data,
+            x=xs[-1],
             y=ultimo.netto,
             text=f"{c.euro(ultimo.netto, segno=True)} ({percento:+.1f}%)",
             showarrow=False,
-            xanchor="left",
+            xanchor="right",
             yanchor="bottom" if ultimo.netto >= 0 else "top",
             font=dict(color=c.colore_esito(ultimo.netto), size=13),
         )
 
-    fig.update_layout(**_layout_base(title="Rendimento", hovermode="x unified", showlegend=mostra_lordo))
+    fig.update_layout(**_layout_base(title="Rendimento", showlegend=mostra_lordo))
     _assi_recessivi(fig)
+    if xs:
+        tacche_x, tacche_testo = _tacche_diradate(xs, etichette)
+        fig.update_xaxes(tickmode="array", tickvals=tacche_x, ticktext=tacche_testo)
     return fig
 
 
 def grafico_patrimonio(stato: c.Stato) -> go.Figure:
-    """Il patrimonio contro il capitale versato, a gradini."""
-    serie = stato.serie
-    xs = [p.data for p in serie]
+    """Il patrimonio contro il capitale versato, un gradino per operazione.
+
+    Parte dal primo versamento, non da uno zero finto prima di qualunque
+    operazione: il patrimonio non esiste prima che ci sia del capitale.
+    I versamenti (il capitale che sale) si segnano con un pallino blu scuro.
+    """
+    serie = stato.serie[1:] if len(stato.serie) > 1 else stato.serie
+    xs, etichette = _punti_indice(serie)
     capitale = [p.capitale for p in serie]
     patrimonio = [p.patrimonio for p in serie]
 
@@ -235,6 +270,22 @@ def grafico_patrimonio(stato: c.Stato) -> go.Figure:
             hovertemplate="Capitale versato: %{y:,.2f} €<extra></extra>",
         )
     )
+
+    indici_versamento = [
+        i for i in range(len(capitale)) if capitale[i] > (capitale[i - 1] if i > 0 else 0)
+    ]
+    if indici_versamento:
+        fig.add_trace(
+            go.Scatter(
+                x=[xs[i] for i in indici_versamento],
+                y=[capitale[i] for i in indici_versamento],
+                mode="markers",
+                name="Versamento",
+                marker=dict(color=c.COLORI["blu"], size=10, line=dict(color="white", width=1.5)),
+                hovertemplate="Versamento, capitale: %{y:,.2f} €<extra></extra>",
+            )
+        )
+
     x_patrimonio, y_patrimonio = _espandi_a_gradini(xs, patrimonio)
     fig.add_trace(
         go.Scatter(
@@ -247,8 +298,11 @@ def grafico_patrimonio(stato: c.Stato) -> go.Figure:
         )
     )
 
-    fig.update_layout(**_layout_base(title="Patrimonio", hovermode="x unified", showlegend=True))
+    fig.update_layout(**_layout_base(title="Patrimonio", showlegend=True))
     _assi_recessivi(fig)
+    if xs:
+        tacche_x, tacche_testo = _tacche_diradate(xs, etichette)
+        fig.update_xaxes(tickmode="array", tickvals=tacche_x, ticktext=tacche_testo)
     return fig
 
 
@@ -497,6 +551,12 @@ def _stile_assi_mpl(ax, date_in_x: bool = False) -> None:
         etichetta.set_rotation_mode("anchor")
 
 
+def _tacche_mpl(ax, xs, etichette) -> None:
+    tacche_x, tacche_testo = _tacche_diradate(xs, etichette)
+    ax.set_xticks(tacche_x)
+    ax.set_xticklabels(tacche_testo)
+
+
 def _disegna_rendimento_mpl(ax, stato: c.Stato) -> None:
     ax.set_facecolor("white")
     ax.set_title("Rendimento", loc="left", fontsize=11, fontweight="bold", color=c.COLORI["testo"])
@@ -505,7 +565,7 @@ def _disegna_rendimento_mpl(ax, stato: c.Stato) -> None:
         _asse_vuoto(ax, "Ancora nessun trade da mostrare.")
         return
 
-    xs = [p.data for p in serie]
+    xs, etichette = _punti_indice(serie)
     netto = [p.netto for p in serie]
     zero = [0.0] * len(serie)
     for poligono in _poligoni_a_gradini(xs, netto, zero, _VERDE_CHIARO_MPL, _ROSSO_CHIARO_MPL):
@@ -524,7 +584,7 @@ def _disegna_rendimento_mpl(ax, stato: c.Stato) -> None:
     # sinistra, altrimenti uscirebbe dal grafico.
     ax.annotate(
         f"{c.euro(ultimo.netto, segno=True)} ({percento:+.1f}%)",
-        xy=(ultimo.data, ultimo.netto),
+        xy=(xs[-1], ultimo.netto),
         xytext=(-6, 6 if ultimo.netto >= 0 else -6),
         textcoords="offset points",
         fontsize=8.5,
@@ -535,20 +595,21 @@ def _disegna_rendimento_mpl(ax, stato: c.Stato) -> None:
     )
 
     ax.legend(loc="upper left", frameon=True, framealpha=0.8, edgecolor="none", fontsize=8)
-    ax.autoscale(enable=True, axis="x", tight=True)
     ax.margins(x=0.04, y=0.18)
-    _stile_assi_mpl(ax, date_in_x=True)
+    _tacche_mpl(ax, xs, etichette)
+    _stile_assi_mpl(ax)
 
 
 def _disegna_patrimonio_mpl(ax, stato: c.Stato) -> None:
     ax.set_facecolor("white")
     ax.set_title("Patrimonio", loc="left", fontsize=11, fontweight="bold", color=c.COLORI["testo"])
-    serie = stato.serie
-    if len(serie) < 2:
+    serie_completa = stato.serie
+    if len(serie_completa) < 2:
         _asse_vuoto(ax, "Ancora nessuna operazione da mostrare.")
         return
 
-    xs = [p.data for p in serie]
+    serie = serie_completa[1:]
+    xs, etichette = _punti_indice(serie)
     capitale = [p.capitale for p in serie]
     patrimonio = [p.patrimonio for p in serie]
     for poligono in _poligoni_a_gradini(xs, patrimonio, capitale, _VERDE_CHIARO_MPL, _ROSSO_CHIARO_MPL):
@@ -556,13 +617,29 @@ def _disegna_patrimonio_mpl(ax, stato: c.Stato) -> None:
 
     x_capitale, y_capitale = _espandi_a_gradini(xs, capitale)
     ax.plot(x_capitale, y_capitale, color=c.COLORI["azzurro"], linewidth=2.2, label="Capitale versato")
+
+    indici_versamento = [
+        i for i in range(len(capitale)) if capitale[i] > (capitale[i - 1] if i > 0 else 0)
+    ]
+    if indici_versamento:
+        ax.scatter(
+            [xs[i] for i in indici_versamento],
+            [capitale[i] for i in indici_versamento],
+            color=c.COLORI["blu"],
+            s=45,
+            zorder=5,
+            edgecolors="white",
+            linewidths=1.2,
+            label="Versamento",
+        )
+
     x_patrimonio, y_patrimonio = _espandi_a_gradini(xs, patrimonio)
     ax.plot(x_patrimonio, y_patrimonio, color=c.COLORI["arancione"], linewidth=2.2, label="Patrimonio")
 
     ax.legend(loc="upper left", frameon=True, framealpha=0.8, edgecolor="none", fontsize=8)
-    ax.autoscale(enable=True, axis="x", tight=True)
     ax.margins(x=0.04, y=0.15)
-    _stile_assi_mpl(ax, date_in_x=True)
+    _tacche_mpl(ax, xs, etichette)
+    _stile_assi_mpl(ax)
 
 
 def _disegna_trade_mpl(ax, stato: c.Stato) -> None:
