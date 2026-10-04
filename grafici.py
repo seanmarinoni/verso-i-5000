@@ -35,32 +35,15 @@ PALETTE_TORTA = [
 ]
 LIQUIDITA_COLORE = "#C7CDD1"
 
-_ALPHA_VERDE = 0.16
-_ALPHA_ROSSO = 0.14
 _GRIGIO_RECESSIVO = "#D8CDBB"
-
-
-def _hex_a_rgb01(hex_colore: str):
-    hex_colore = hex_colore.lstrip("#")
-    return tuple(int(hex_colore[i : i + 2], 16) / 255 for i in (0, 2, 4))
-
-
-def _hex_a_rgba_css(hex_colore: str, alpha: float) -> str:
-    """Per Plotly: 'rgba(r, g, b, a)'."""
-    r, g, b = (round(v * 255) for v in _hex_a_rgb01(hex_colore))
-    return f"rgba({r}, {g}, {b}, {alpha})"
 
 
 def _hex_a_rgba01(hex_colore: str, alpha: float):
     """Per matplotlib: (r, g, b, a) da 0 a 1."""
-    return (*_hex_a_rgb01(hex_colore), alpha)
+    hex_colore = hex_colore.lstrip("#")
+    r, g, b = (int(hex_colore[i : i + 2], 16) / 255 for i in (0, 2, 4))
+    return (r, g, b, alpha)
 
-
-# Le stesse due tinte, nel formato che chiede ciascuna libreria.
-_VERDE_CHIARO = _hex_a_rgba_css(c.COLORI["verde"], _ALPHA_VERDE)
-_ROSSO_CHIARO = _hex_a_rgba_css(c.COLORI["rosso"], _ALPHA_ROSSO)
-_VERDE_CHIARO_MPL = _hex_a_rgba01(c.COLORI["verde"], _ALPHA_VERDE)
-_ROSSO_CHIARO_MPL = _hex_a_rgba01(c.COLORI["rosso"], _ALPHA_ROSSO)
 
 _LAYOUT_BASE = dict(
     plot_bgcolor="white",
@@ -89,73 +72,6 @@ def _assi_recessivi(fig: go.Figure) -> None:
     )
 
 
-def _espandi_a_gradini(xs, ys):
-    """Il percorso 'a gradini' di una serie: piatta, poi un salto verticale.
-
-    Capitale, patrimonio, lordo e netto non si muovono gradualmente: restano
-    fermi tra un'operazione e l'altra e saltano solo quando succede qualcosa.
-    Disegnarli a gradini e' la rappresentazione onesta dei dati, non solo una
-    linea che unisce i punti.
-    """
-    if not xs:
-        return [], []
-    xs2, ys2 = [xs[0]], [ys[0]]
-    for i in range(1, len(xs)):
-        xs2.append(xs[i])
-        ys2.append(ys[i - 1])
-        xs2.append(xs[i])
-        ys2.append(ys[i])
-    return xs2, ys2
-
-
-def _poligoni_a_gradini(xs, sopra, sotto, colore_sopra, colore_sotto):
-    """I poligoni colorati tra due serie a gradini (o tra una serie e lo zero).
-
-    Divide l'intervallo in tratti dove 'sopra >= sotto' o il contrario, e
-    restituisce un poligono per ogni tratto: niente incroci a meta' tratto,
-    perche' i salti avvengono sempre esattamente in corrispondenza di
-    un'operazione. E' una funzione pura (solo numeri, nessuna libreria di
-    grafica): la usano sia i grafici Plotly sia il PNG di matplotlib.
-    """
-    poligoni = []
-    if len(xs) < 2:
-        return poligoni
-
-    segmenti = [1 if sopra[i] - sotto[i] >= 0 else -1 for i in range(len(xs) - 1)]
-    inizio = 0
-    for fine in range(1, len(segmenti) + 1):
-        ultimo = fine == len(segmenti)
-        cambia = not ultimo and segmenti[fine] != segmenti[inizio]
-        if ultimo or cambia:
-            indici = range(inizio, fine + 1)
-            xs_tratto = [xs[i] for i in indici]
-            sopra_tratto = [sopra[i] for i in indici]
-            sotto_tratto = [sotto[i] for i in indici]
-            x_avanti, y_avanti = _espandi_a_gradini(xs_tratto, sopra_tratto)
-            x_indietro, y_indietro = _espandi_a_gradini(xs_tratto, sotto_tratto)
-            colore = colore_sopra if segmenti[inizio] >= 0 else colore_sotto
-            poligoni.append({"x": x_avanti + x_indietro[::-1], "y": y_avanti + y_indietro[::-1], "colore": colore})
-            inizio = fine
-    return poligoni
-
-
-def _riempimenti_a_gradini(xs, sopra, sotto, colore_sopra, colore_sotto):
-    """I poligoni di sopra, come tracce Plotly pronte da aggiungere alla figura."""
-    return [
-        go.Scatter(
-            x=poligono["x"],
-            y=poligono["y"],
-            fill="toself",
-            fillcolor=poligono["colore"],
-            mode="lines",
-            line=dict(width=0),
-            hoverinfo="skip",
-            showlegend=False,
-        )
-        for poligono in _poligoni_a_gradini(xs, sopra, sotto, colore_sopra, colore_sotto)
-    ]
-
-
 def _punti_indice(serie):
     """Un indice per operazione al posto della data vera sull'asse.
 
@@ -181,74 +97,13 @@ def _tacche_diradate(xs, etichette, massimo=7):
     return [xs[i] for i in indici], [etichette[i] for i in indici]
 
 
-def grafico_rendimento(stato: c.Stato, mostra_lordo: bool = False) -> go.Figure:
-    """Il gain/loss netto sommato, un gradino per operazione, sfondo verde/rosso."""
-    serie = stato.serie
-    xs, etichette = _punti_indice(serie)
-    netto = [p.netto for p in serie]
-    zero = [0.0] * len(serie)
+def grafico_andamento(stato: c.Stato) -> go.Figure:
+    """Patrimonio e capitale versato in un'unica linea cumulata, un punto per operazione.
 
-    fig = go.Figure()
-    for traccia in _riempimenti_a_gradini(xs, netto, zero, _VERDE_CHIARO, _ROSSO_CHIARO):
-        fig.add_trace(traccia)
-
-    if mostra_lordo:
-        lordo = [p.lordo for p in serie]
-        x_lordo, y_lordo = _espandi_a_gradini(xs, lordo)
-        fig.add_trace(
-            go.Scatter(
-                x=x_lordo,
-                y=y_lordo,
-                mode="lines",
-                name="Lordo",
-                line=dict(color=c.COLORI["blu"], width=2, dash="dash"),
-                hovertemplate="Lordo: %{y:,.2f} €<extra></extra>",
-            )
-        )
-
-    x_netto, y_netto = _espandi_a_gradini(xs, netto)
-    fig.add_trace(
-        go.Scatter(
-            x=x_netto,
-            y=y_netto,
-            mode="lines",
-            name="Netto",
-            line=dict(color=c.COLORI["arancione"], width=3),
-            hovertemplate="Netto: %{y:,.2f} €<extra></extra>",
-        )
-    )
-
-    if serie:
-        ultimo = serie[-1]
-        percento = (
-            100 * ultimo.netto / stato.capitale_versato if stato.capitale_versato else 0.0
-        )
-        # L'ultimo punto e' sempre il piu' a destra: l'etichetta va verso
-        # sinistra, altrimenti uscirebbe dal grafico.
-        fig.add_annotation(
-            x=xs[-1],
-            y=ultimo.netto,
-            text=f"{c.euro(ultimo.netto, segno=True)} ({percento:+.1f}%)",
-            showarrow=False,
-            xanchor="right",
-            yanchor="bottom" if ultimo.netto >= 0 else "top",
-            font=dict(color=c.colore_esito(ultimo.netto), size=13),
-        )
-
-    fig.update_layout(**_layout_base(title="Rendimento", showlegend=mostra_lordo))
-    _assi_recessivi(fig)
-    if xs:
-        tacche_x, tacche_testo = _tacche_diradate(xs, etichette)
-        fig.update_xaxes(tickmode="array", tickvals=tacche_x, ticktext=tacche_testo)
-    return fig
-
-
-def grafico_patrimonio(stato: c.Stato) -> go.Figure:
-    """Il patrimonio contro il capitale versato, un gradino per operazione.
-
-    Parte dal primo versamento, non da uno zero finto prima di qualunque
-    operazione: il patrimonio non esiste prima che ci sia del capitale.
-    I versamenti (il capitale che sale) si segnano con un pallino blu scuro.
+    Un segmento per trade, in ordine di operazione e non di data vera (due
+    operazioni lo stesso giorno restano comunque due punti distinti): e' il
+    diario del portafoglio, non uno scatter sparso nel tempo. Parte dal primo
+    versamento, non da uno zero finto prima di qualunque operazione.
     """
     serie = stato.serie[1:] if len(stato.serie) > 1 else stato.serie
     xs, etichette = _punti_indice(serie)
@@ -256,17 +111,14 @@ def grafico_patrimonio(stato: c.Stato) -> go.Figure:
     patrimonio = [p.patrimonio for p in serie]
 
     fig = go.Figure()
-    for traccia in _riempimenti_a_gradini(xs, patrimonio, capitale, _VERDE_CHIARO, _ROSSO_CHIARO):
-        fig.add_trace(traccia)
 
-    x_capitale, y_capitale = _espandi_a_gradini(xs, capitale)
     fig.add_trace(
         go.Scatter(
-            x=x_capitale,
-            y=y_capitale,
+            x=xs,
+            y=capitale,
             mode="lines",
             name="Capitale versato",
-            line=dict(color=c.COLORI["azzurro"], width=3),
+            line=dict(color=c.COLORI["azzurro"], width=2),
             hovertemplate="Capitale versato: %{y:,.2f} €<extra></extra>",
         )
     )
@@ -281,16 +133,15 @@ def grafico_patrimonio(stato: c.Stato) -> go.Figure:
                 y=[capitale[i] for i in indici_versamento],
                 mode="markers",
                 name="Versamento",
-                marker=dict(color=c.COLORI["blu"], size=10, line=dict(color="white", width=1.5)),
+                marker=dict(color=c.COLORI["blu"], size=9, line=dict(color="white", width=1.5)),
                 hovertemplate="Versamento, capitale: %{y:,.2f} €<extra></extra>",
             )
         )
 
-    x_patrimonio, y_patrimonio = _espandi_a_gradini(xs, patrimonio)
     fig.add_trace(
         go.Scatter(
-            x=x_patrimonio,
-            y=y_patrimonio,
+            x=xs,
+            y=patrimonio,
             mode="lines",
             name="Patrimonio",
             line=dict(color=c.COLORI["arancione"], width=3),
@@ -298,7 +149,23 @@ def grafico_patrimonio(stato: c.Stato) -> go.Figure:
         )
     )
 
-    fig.update_layout(**_layout_base(title="Patrimonio", showlegend=True))
+    if serie:
+        ultimo = serie[-1]
+        scarto = ultimo.patrimonio - ultimo.capitale
+        percento = 100 * scarto / ultimo.capitale if ultimo.capitale else 0.0
+        # L'ultimo punto e' sempre il piu' a destra: l'etichetta va verso
+        # sinistra, altrimenti uscirebbe dal grafico.
+        fig.add_annotation(
+            x=xs[-1],
+            y=ultimo.patrimonio,
+            text=f"{c.euro(ultimo.patrimonio)} ({percento:+.1f}%)",
+            showarrow=False,
+            xanchor="right",
+            yanchor="bottom" if scarto >= 0 else "top",
+            font=dict(color=c.colore_esito(scarto), size=13),
+        )
+
+    fig.update_layout(**_layout_base(title="Andamento del portafoglio", showlegend=True))
     _assi_recessivi(fig)
     if xs:
         tacche_x, tacche_testo = _tacche_diradate(xs, etichette)
@@ -557,52 +424,9 @@ def _tacche_mpl(ax, xs, etichette) -> None:
     ax.set_xticklabels(tacche_testo)
 
 
-def _disegna_rendimento_mpl(ax, stato: c.Stato) -> None:
+def _disegna_andamento_mpl(ax, stato: c.Stato) -> None:
     ax.set_facecolor("white")
-    ax.set_title("Rendimento", loc="left", fontsize=11, fontweight="bold", color=c.COLORI["testo"])
-    serie = stato.serie
-    if len(serie) < 2:
-        _asse_vuoto(ax, "Ancora nessun trade da mostrare.")
-        return
-
-    xs, etichette = _punti_indice(serie)
-    netto = [p.netto for p in serie]
-    zero = [0.0] * len(serie)
-    for poligono in _poligoni_a_gradini(xs, netto, zero, _VERDE_CHIARO_MPL, _ROSSO_CHIARO_MPL):
-        ax.fill(poligono["x"], poligono["y"], color=poligono["colore"], linewidth=0)
-
-    lordo = [p.lordo for p in serie]
-    x_lordo, y_lordo = _espandi_a_gradini(xs, lordo)
-    ax.plot(x_lordo, y_lordo, color=c.COLORI["blu"], linewidth=1.4, linestyle="--", label="Lordo")
-
-    x_netto, y_netto = _espandi_a_gradini(xs, netto)
-    ax.plot(x_netto, y_netto, color=c.COLORI["arancione"], linewidth=2.2, label="Netto")
-
-    ultimo = serie[-1]
-    percento = 100 * ultimo.netto / stato.capitale_versato if stato.capitale_versato else 0.0
-    # Il punto piu' recente e' sempre il piu' a destra: l'etichetta va verso
-    # sinistra, altrimenti uscirebbe dal grafico.
-    ax.annotate(
-        f"{c.euro(ultimo.netto, segno=True)} ({percento:+.1f}%)",
-        xy=(xs[-1], ultimo.netto),
-        xytext=(-6, 6 if ultimo.netto >= 0 else -6),
-        textcoords="offset points",
-        fontsize=8.5,
-        color=c.colore_esito(ultimo.netto),
-        ha="right",
-        va="bottom" if ultimo.netto >= 0 else "top",
-        bbox=dict(facecolor="white", alpha=0.75, edgecolor="none", pad=1.5),
-    )
-
-    ax.legend(loc="upper left", frameon=True, framealpha=0.8, edgecolor="none", fontsize=8)
-    ax.margins(x=0.04, y=0.18)
-    _tacche_mpl(ax, xs, etichette)
-    _stile_assi_mpl(ax)
-
-
-def _disegna_patrimonio_mpl(ax, stato: c.Stato) -> None:
-    ax.set_facecolor("white")
-    ax.set_title("Patrimonio", loc="left", fontsize=11, fontweight="bold", color=c.COLORI["testo"])
+    ax.set_title("Andamento del portafoglio", loc="left", fontsize=11, fontweight="bold", color=c.COLORI["testo"])
     serie_completa = stato.serie
     if len(serie_completa) < 2:
         _asse_vuoto(ax, "Ancora nessuna operazione da mostrare.")
@@ -612,11 +436,8 @@ def _disegna_patrimonio_mpl(ax, stato: c.Stato) -> None:
     xs, etichette = _punti_indice(serie)
     capitale = [p.capitale for p in serie]
     patrimonio = [p.patrimonio for p in serie]
-    for poligono in _poligoni_a_gradini(xs, patrimonio, capitale, _VERDE_CHIARO_MPL, _ROSSO_CHIARO_MPL):
-        ax.fill(poligono["x"], poligono["y"], color=poligono["colore"], linewidth=0)
 
-    x_capitale, y_capitale = _espandi_a_gradini(xs, capitale)
-    ax.plot(x_capitale, y_capitale, color=c.COLORI["azzurro"], linewidth=2.2, label="Capitale versato")
+    ax.plot(xs, capitale, color=c.COLORI["azzurro"], linewidth=2.0, label="Capitale versato")
 
     indici_versamento = [
         i for i in range(len(capitale)) if capitale[i] > (capitale[i - 1] if i > 0 else 0)
@@ -626,15 +447,31 @@ def _disegna_patrimonio_mpl(ax, stato: c.Stato) -> None:
             [xs[i] for i in indici_versamento],
             [capitale[i] for i in indici_versamento],
             color=c.COLORI["blu"],
-            s=45,
+            s=40,
             zorder=5,
             edgecolors="white",
             linewidths=1.2,
             label="Versamento",
         )
 
-    x_patrimonio, y_patrimonio = _espandi_a_gradini(xs, patrimonio)
-    ax.plot(x_patrimonio, y_patrimonio, color=c.COLORI["arancione"], linewidth=2.2, label="Patrimonio")
+    ax.plot(xs, patrimonio, color=c.COLORI["arancione"], linewidth=2.2, label="Patrimonio")
+
+    ultimo = serie[-1]
+    scarto = ultimo.patrimonio - ultimo.capitale
+    percento = 100 * scarto / ultimo.capitale if ultimo.capitale else 0.0
+    # Il punto piu' recente e' sempre il piu' a destra: l'etichetta va verso
+    # sinistra, altrimenti uscirebbe dal grafico.
+    ax.annotate(
+        f"{c.euro(ultimo.patrimonio)} ({percento:+.1f}%)",
+        xy=(xs[-1], ultimo.patrimonio),
+        xytext=(-6, 6 if scarto >= 0 else -6),
+        textcoords="offset points",
+        fontsize=8.5,
+        color=c.colore_esito(scarto),
+        ha="right",
+        va="bottom" if scarto >= 0 else "top",
+        bbox=dict(facecolor="white", alpha=0.75, edgecolor="none", pad=1.5),
+    )
 
     ax.legend(loc="upper left", frameon=True, framealpha=0.8, edgecolor="none", fontsize=8)
     ax.margins(x=0.04, y=0.15)
@@ -760,8 +597,7 @@ def immagine_dashboard(stato: c.Stato, oggi: date | None = None) -> bytes:
         "intestazione": 0.6,
         "numeri": 2.5,
         "barra": 0.45,
-        "rendimento": 2.3,
-        "patrimonio": 2.3,
+        "andamento": 2.6,
         "trade": 2.1,
         "torta": 2.6,
         "tabella": 0.55 + 0.26 * max(n_righe, 1),
@@ -792,11 +628,8 @@ def immagine_dashboard(stato: c.Stato, oggi: date | None = None) -> bytes:
     _disegna_intestazione_mpl(aggiungi("intestazione", margine=0.04), oggi)
     _disegna_numeri_mpl(aggiungi("numeri", margine=0.04), stato)
     _disegna_barra_obiettivo_mpl(aggiungi("barra", margine=0.05), stato)
-    _disegna_rendimento_mpl(
-        aggiungi("rendimento", margine=0.08, pad_sopra_in=0.32, pad_sotto_in=0.5), stato
-    )
-    _disegna_patrimonio_mpl(
-        aggiungi("patrimonio", margine=0.08, pad_sopra_in=0.32, pad_sotto_in=0.5), stato
+    _disegna_andamento_mpl(
+        aggiungi("andamento", margine=0.08, pad_sopra_in=0.32, pad_sotto_in=0.5), stato
     )
     _disegna_trade_mpl(aggiungi("trade", margine=0.08, pad_sopra_in=0.32, pad_sotto_in=0.5), stato)
     _disegna_torta_mpl(aggiungi("torta", margine=0.14, pad_sopra_in=0.32, pad_sotto_in=0.05), stato)

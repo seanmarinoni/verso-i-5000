@@ -748,9 +748,7 @@ def pagina_dashboard(stato) -> None:
     barra_obiettivo(stato)
 
     st.write("")
-    mostra_lordo = st.checkbox("Mostra anche il lordo", key="mostra_lordo")
-    st.plotly_chart(g.grafico_rendimento(stato, mostra_lordo), width="stretch")
-    st.plotly_chart(g.grafico_patrimonio(stato), width="stretch")
+    st.plotly_chart(g.grafico_andamento(stato), width="stretch")
     st.plotly_chart(g.grafico_trade_chiusi(stato), width="stretch")
 
     st.markdown("#### Posizioni aperte")
