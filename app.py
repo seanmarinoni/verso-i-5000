@@ -106,6 +106,27 @@ STILE = f"""
       height: 100%;
       border-radius: 999px;
   }}
+  /* Compro/Vendo/Verso capitale: colorati solo al passaggio del mouse o
+     alla pressione, non a riposo. Il tasto della modalita' attiva e'
+     disattivato, quindi non reagisce. */
+  .st-key-scegli_acquisto button:hover:not(:disabled),
+  .st-key-scegli_acquisto button:active:not(:disabled) {{
+      background-color: {c.COLORI["verde"]} !important;
+      border-color: {c.COLORI["verde"]} !important;
+      color: white !important;
+  }}
+  .st-key-scegli_vendita button:hover:not(:disabled),
+  .st-key-scegli_vendita button:active:not(:disabled) {{
+      background-color: {c.COLORI["rosso"]} !important;
+      border-color: {c.COLORI["rosso"]} !important;
+      color: white !important;
+  }}
+  .st-key-scegli_versamento button:hover:not(:disabled),
+  .st-key-scegli_versamento button:active:not(:disabled) {{
+      background-color: {c.COLORI["blu"]} !important;
+      border-color: {c.COLORI["blu"]} !important;
+      color: white !important;
+  }}
 </style>
 """
 
@@ -158,6 +179,20 @@ def barra_obiettivo(stato) -> None:
 def avvisa(testo: str) -> None:
     """Mette da parte un messaggio da mostrare dopo il ricaricamento."""
     st.session_state["conferma"] = testo
+
+
+def esegui_salvataggio(azione) -> bool:
+    """Esegue un salvataggio su storage.py mostrando un errore chiaro se fallisce.
+
+    Senza questo, un problema di collegamento a GitHub (per esempio il
+    token senza i permessi giusti) sembrava semplicemente "non funzionare".
+    """
+    try:
+        azione()
+    except storage.ErroreArchivio as errore:
+        st.error(f"Non sono riuscita a salvare: {errore}")
+        return False
+    return True
 
 
 def azzera(chiavi) -> None:
@@ -221,10 +256,13 @@ def selettore_tipo() -> str:
     colonne = st.columns(3)
     for colonna, tipo in zip(colonne, (c.ACQUISTO, c.VENDITA, c.VERSAMENTO)):
         with colonna:
+            # Quello della modalita' attiva e' disattivato (ci sei gia'):
+            # gli altri due restano neutri finche' non li tocchi o ci passi
+            # sopra, poi si colorano del loro colore (verde/rosso/blu).
             if st.button(
                 NOME_TIPO[tipo],
                 key=f"scegli_{tipo}",
-                type="primary" if tipo == attuale else "secondary",
+                disabled=(tipo == attuale),
                 width="stretch",
             ):
                 st.session_state["tipo_nuova"] = tipo
@@ -342,13 +380,13 @@ def modulo_acquisto(operazioni, stato) -> None:
         ]
     )
     if st.button("Salva", key="salva_acquisto", type="primary"):
-        storage.salva(nuova)
-        avvisa(
-            f"Segnato: {c.quote_testo(quote)} quote di {prodotto} a {c.euro(prezzo)}. "
-            f"Ora la posizione e' di {c.quote_testo(riga.quote_dopo)} quote, PMC {c.euro(riga.pmc_dopo)}."
-        )
-        azzera(["quote_acquisto", "prezzo_acquisto", "data_acquisto", "prodotto_scelto", "nome_nuovo"])
-        st.rerun()
+        if esegui_salvataggio(lambda: storage.salva(nuova)):
+            avvisa(
+                f"Segnato: {c.quote_testo(quote)} quote di {prodotto} a {c.euro(prezzo)}. "
+                f"Ora la posizione e' di {c.quote_testo(riga.quote_dopo)} quote, PMC {c.euro(riga.pmc_dopo)}."
+            )
+            azzera(["quote_acquisto", "prezzo_acquisto", "data_acquisto", "prodotto_scelto", "nome_nuovo"])
+            st.rerun()
 
 
 def modulo_vendita(operazioni, stato) -> None:
@@ -409,20 +447,20 @@ def modulo_vendita(operazioni, stato) -> None:
     riquadro(voci)
 
     if st.button("Salva", key="salva_vendita", type="primary"):
-        storage.salva(nuova)
-        avvisa(
-            f"Segnato: vendute {c.quote_testo(quote)} quote di {posizione.prodotto} a {c.euro(prezzo)}. "
-            f"{etichetta_netto(riga.esito_vendita)} {c.euro(riga.netto, segno=True)}."
-        )
-        azzera(
-            [
-                f"quote_vendita_{posizione.chiave}",
-                "prezzo_vendita",
-                "data_vendita",
-                "prodotto_scelto",
-            ]
-        )
-        st.rerun()
+        if esegui_salvataggio(lambda: storage.salva(nuova)):
+            avvisa(
+                f"Segnato: vendute {c.quote_testo(quote)} quote di {posizione.prodotto} a {c.euro(prezzo)}. "
+                f"{etichetta_netto(riga.esito_vendita)} {c.euro(riga.netto, segno=True)}."
+            )
+            azzera(
+                [
+                    f"quote_vendita_{posizione.chiave}",
+                    "prezzo_vendita",
+                    "data_vendita",
+                    "prodotto_scelto",
+                ]
+            )
+            st.rerun()
 
 
 def modulo_versamento(operazioni, stato) -> None:
@@ -454,13 +492,13 @@ def modulo_versamento(operazioni, stato) -> None:
         ]
     )
     if st.button("Salva", key="salva_versamento", type="primary"):
-        storage.salva(nuova)
-        avvisa(
-            f"Segnato il versamento di {c.euro(importo)}. "
-            f"Capitale versato: {c.euro(dopo.capitale_versato)}."
-        )
-        azzera(["importo_versamento", "data_versamento"])
-        st.rerun()
+        if esegui_salvataggio(lambda: storage.salva(nuova)):
+            avvisa(
+                f"Segnato il versamento di {c.euro(importo)}. "
+                f"Capitale versato: {c.euro(dopo.capitale_versato)}."
+            )
+            azzera(["importo_versamento", "data_versamento"])
+            st.rerun()
 
 
 def pagina_nuova(operazioni, stato) -> None:
@@ -583,12 +621,12 @@ def modulo_correzione(operazioni, riga) -> None:
     # per uno stato impossibile (per esempio mentre si sistema l'ordine di due
     # operazioni) e restare bloccati sarebbe peggio.
     problemi = c.valida(altre, corretta, blocca_liquidita=False)
-    storage.aggiorna(corretta)
-    messaggio = "Correzione salvata: l'app ha rifatto tutti i conti."
-    if problemi:
-        messaggio += " Attenzione: " + " ".join(problemi)
-    avvisa(messaggio)
-    st.rerun()
+    if esegui_salvataggio(lambda: storage.aggiorna(corretta)):
+        messaggio = "Correzione salvata: l'app ha rifatto tutti i conti."
+        if problemi:
+            messaggio += " Attenzione: " + " ".join(problemi)
+        avvisa(messaggio)
+        st.rerun()
 
 
 def modulo_elimina(riga) -> None:
@@ -599,10 +637,10 @@ def modulo_elimina(riga) -> None:
         sinistra, destra = st.columns(2)
         with sinistra:
             if st.button("Si', elimina", key=f"elimina_si_{identificativo}", type="primary"):
-                storage.elimina(identificativo)
-                azzera([chiave])
-                avvisa("Operazione eliminata: l'app ha rifatto tutti i conti.")
-                st.rerun()
+                if esegui_salvataggio(lambda: storage.elimina(identificativo)):
+                    azzera([chiave])
+                    avvisa("Operazione eliminata: l'app ha rifatto tutti i conti.")
+                    st.rerun()
         with destra:
             if st.button("Annulla", key=f"elimina_no_{identificativo}"):
                 azzera([chiave])
